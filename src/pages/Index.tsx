@@ -1,29 +1,80 @@
-import { useState, useEffect } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Clock, CheckCircle2, Plus, FileText, AlertTriangle } from "lucide-react";
+import { Clock, CheckCircle2, Plus, FileText, AlertTriangle, Search } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { useTimer } from "@/hooks/useTimer";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-
-// TODO: Define proper TypeScript interfaces for Task
-// interface Task {
-//   id: string;
-//   title: string;
-//   description?: string;
-//   priority: 'high' | 'medium' | 'low';
-//   completed: boolean;
-//   dueDate?: Date;
-//   createdAt: Date;
-// }
+import { Task, TaskFormData } from "@/types/Task";
+import { TaskCard } from "@/components/TaskCard";
+import { TaskForm } from "@/components/TaskForm";
+import { useTasks } from "@/hooks/useTasks";
+import { useTaskShortcuts } from "@/hooks/useKeyboardShortcuts";
+import { motion, AnimatePresence } from "framer-motion";
 
 const Index = () => {
-  // TODO: Implement state management for tasks
-  const [tasks, setTasks] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [testStarted, setTestStarted] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   
   const { timeRemaining, isTimeUp, formatTime, startTimer, resetTimer } = useTimer(3600); // 60 minutes
   
+  // Use custom hooks for task management
+  const {
+    tasks,
+    editingTask,
+    searchQuery,
+    filteredTasks,
+    taskStats,
+    addTask,
+    editTask,
+    deleteTask,
+    toggleTaskComplete,
+    startEditingTask,
+    cancelEditing,
+    clearAllTasks,
+    setSearchQuery,
+  } = useTasks();
+
+  // Handle task form submission
+  const handleAddTask = async (formData: TaskFormData) => {
+    addTask(formData);
+    setShowForm(false);
+  };
+
+  const handleEditTask = async (formData: TaskFormData) => {
+    editTask(formData);
+    setShowForm(false);
+  };
+
+  const handleEditClick = (task: Task) => {
+    startEditingTask(task);
+    setShowForm(true);
+  };
+
+  const handleCancelForm = () => {
+    setShowForm(false);
+    cancelEditing();
+  };
+
+  // Keyboard shortcuts
+  useTaskShortcuts({
+    onNewTask: () => {
+      if (!showForm) {
+        setShowForm(true);
+        cancelEditing();
+      }
+    },
+    onEscape: () => {
+      if (showForm) {
+        handleCancelForm();
+      }
+    },
+    onSearch: () => {
+      searchInputRef.current?.focus();
+    },
+  });
+
   const handleStartTest = () => {
     setTestStarted(true);
     startTimer();
@@ -32,7 +83,7 @@ const Index = () => {
   const handleResetTest = () => {
     setTestStarted(false);
     resetTimer();
-    setTasks([]);
+    clearAllTasks();
     setShowForm(false);
   };
 
@@ -189,22 +240,43 @@ const Index = () => {
                 </Button>
               </div>
 
-              {/* TODO: Add TaskForm component here when showForm is true */}
-              {showForm && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Add New Task</CardTitle>
-                    <CardDescription>Create a new task to manage your work</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-muted-foreground">
-                      🚧 TODO: Implement the TaskForm component here
-                    </p>
-                    <p className="text-sm mt-2 text-muted-foreground">
-                      Form should include: title, description, priority, due date
-                    </p>
-                  </CardContent>
-                </Card>
+              {/* TaskForm component */}
+              <AnimatePresence mode="wait">
+                {showForm && (
+                  <motion.div
+                    key="task-form"
+                    initial={{ opacity: 0, y: -20, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -20, scale: 0.95 }}
+                    transition={{
+                      type: "spring",
+                      stiffness: 300,
+                      damping: 30,
+                      mass: 0.8
+                    }}
+                  >
+                    <TaskForm
+                      initialData={editingTask || undefined}
+                      onSubmit={editingTask ? handleEditTask : handleAddTask}
+                      onCancel={handleCancelForm}
+                      isEditing={!!editingTask}
+                    />
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* Search Bar */}
+              {tasks.length > 0 && (
+                <div className="relative animate-in slide-in-from-top-2 duration-300">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4 transition-colors duration-200" />
+                  <Input
+                    ref={searchInputRef}
+                    placeholder="Search tasks... (Ctrl+F)"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-10 transition-all duration-200 focus:ring-2 focus:ring-primary/20"
+                  />
+                </div>
               )}
 
               {/* Task List Area */}
@@ -219,13 +291,57 @@ const Index = () => {
                       </p>
                     </CardContent>
                   </Card>
+                ) : filteredTasks.length === 0 ? (
+                  <Card className="border-dashed">
+                    <CardContent className="flex flex-col items-center justify-center py-12">
+                      <Search className="w-12 h-12 text-muted-foreground mb-4" />
+                      <h3 className="text-lg font-medium mb-2">No tasks found</h3>
+                      <p className="text-muted-foreground text-center max-w-sm">
+                        Try adjusting your search query.
+                      </p>
+                    </CardContent>
+                  </Card>
                 ) : (
-                  <div className="grid gap-4">
-                    {/* TODO: Map through tasks and render TaskCard components */}
-                    <p className="text-muted-foreground">
-                      🚧 TODO: Implement TaskCard components here
-                    </p>
-                  </div>
+                  <motion.div 
+                    className="grid gap-4"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ duration: 0.3 }}
+                  >
+                    <AnimatePresence mode="popLayout">
+                      {filteredTasks.map((task, index) => (
+                        <motion.div
+                          key={task.id}
+                          initial={{ opacity: 0, y: 20, scale: 0.95 }}
+                          animate={{ 
+                            opacity: 1, 
+                            y: 0, 
+                            scale: 1,
+                            transition: { 
+                              delay: index * 0.05,
+                              type: "spring",
+                              stiffness: 300,
+                              damping: 30
+                            }
+                          }}
+                          exit={{ 
+                            opacity: 0, 
+                            y: -20, 
+                            scale: 0.95,
+                            transition: { duration: 0.2 }
+                          }}
+                          layout
+                        >
+                          <TaskCard
+                            task={task}
+                            onEdit={handleEditClick}
+                            onDelete={deleteTask}
+                            onToggleComplete={toggleTaskComplete}
+                          />
+                        </motion.div>
+                      ))}
+                    </AnimatePresence>
+                  </motion.div>
                 )}
               </div>
             </div>
